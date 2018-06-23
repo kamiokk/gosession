@@ -4,6 +4,7 @@ import (
 	"io"
 	"fmt"
 	"time"
+	"errors"
 	"net/http"
 	"crypto/md5"
 	"math/rand"
@@ -96,7 +97,33 @@ func (s *Session) Set(key string,value interface{}) (error) {
 	return s.Model.Write(s.ID,key,value,s.Option.MaxAge)
 }
 
-// Get from session
+// Get a value from session
 func (s *Session) Get(key string) (interface{},error) {
 	return s.Model.Read(s.ID,key)
+}
+
+// Get a string value from session
+func (s *Session) GetString(key string) (string,error) {
+	if val,err := s.Model.Read(s.ID,key);err != nil {
+		return "",err
+	} else {
+		if s,ok := val.(string);ok {
+			return s,nil
+		} else {
+			return "",errors.New("type missmatch")
+		}
+	}
+}
+
+// Get an int value from session
+func (s *Session) GetInt(key string) (int,error) {
+	if val,err := s.Model.Read(s.ID,key);err != nil {
+		return 0,err
+	} else {
+		if i,ok := val.(int);ok {
+			return i,nil
+		} else {
+			return 0,errors.New("type missmatch")
+		}
+	}
 }
