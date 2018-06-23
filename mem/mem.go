@@ -65,12 +65,38 @@ func recycle() {
 	}
 }
 
-type Model struct {}
+type Model struct {
+	sessionID string
+	expire int64
+}
 
-func (m Model) Read(ssid,key string) (interface{},error) {
+// New make a new session,return an error if the sessionID exist 
+func (m *Model) New(ssid string,expire int64) error {
+	var err error
 	index := indexFor(ssid)
+	expireAt := time.Now().Unix() + expire + EXPIRE_BUFFER_TIME
+	data[index].mu.Lock()
+	_,ok := data[index].table[ssid]
+	if ok {
+		err = errors.New("sessionID:" + ssid + " already exists")
+	} else {
+		data[index].table[ssid] = &session{expireAt:expireAt,values:make(map[string]interface{})}
+	}
+	data[index].mu.Unlock()
+	if err == nil {
+		m.sessionID = ssid
+		m.expire = expire
+	}
+	return err
+}
+
+func (m *Model) Read(key string) (interface{},error) {
+	if m.sessionID == "" {
+		return nil,errors.New("not init yet")
+	}
+	index := indexFor(m.sessionID)
 	data[index].mu.RLock()
-	s,ok := data[index].table[ssid]
+	s,ok := data[index].table[m.sessionID]
 	data[index].mu.RUnlock()
 	var ret interface{}
 	var err error
@@ -84,22 +110,42 @@ func (m Model) Read(ssid,key string) (interface{},error) {
 	return ret,err
 }
 
-func (m Model) Write(ssid,key string,value interface{},expire int64) (error) {
-	index := indexFor(ssid)
-	expire = time.Now().Unix() + expire + EXPIRE_BUFFER_TIME
+func (m *Model) Write(key string,value interface{}) (error) {
+	if m.sessionID == "" {
+		return errors.New("not init yet")
+	}
+	index := indexFor(m.sessionID)
+	var err error
 	data[index].mu.Lock()
-	if _,ok := data[index].table[ssid];ok {
-		data[index].table[ssid].values[key] = value
-		data[index].table[ssid].expireAt = expire
+	if v,ok := data[index].table[m.sessionID];ok && v.expireAt >= time.Now().Unix() {
+		data[index].table[m.sessionID].values[key] = value
 	} else {
-		data[index].table[ssid] = &session{expireAt:expire,values:make(map[string]interface{})}
-		data[index].table[ssid].values[key] = value
+		err = errors.New("session not exists or expired")
 	}
 	data[index].mu.Unlock()
-	return nil
+	return err
 }
 
-func (m Model) Refresh(ssid string,expire int64) (string,bool) {
+func (m *Model) Unset(key string) (error) {
+	if m.sessionID == "" {
+		return errors.New("not init yet")
+	}
+	index := indexFor(m.sessionID)
+	var err error
+	data[index].mu.Lock()
+	if v,ok := data[index].table[m.sessionID];ok && v.expireAt >= time.Now().Unix() {
+		if _,ok = data[index].table[m.sessionID].values[key]; ok {
+			delete(data[index].table[m.sessionID].values,key)
+		}
+	} else {
+		err = errors.New("session not exists or expired")
+	}
+	data[index].mu.Unlock()
+	return err
+}
+
+// Refresh checks if the sessionID exists, it will refresh the expire time and return true while the sessionID exists
+func (m *Model) Refresh(ssid string,expire int64) (string,bool) {
 	ok := false
 	index := indexFor(ssid)
 	data[index].mu.Lock()
@@ -108,6 +154,8 @@ func (m Model) Refresh(ssid string,expire int64) (string,bool) {
 	}
 	data[index].mu.Unlock()
 	if ok {
+		m.sessionID = ssid
+		m.expire = expire
 		return ssid,true
 	} else {
 		return "",false

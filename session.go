@@ -22,23 +22,27 @@ type SessionOption struct {
 
 // ISessionModel defines methods of session store model 
 type ISessionModel interface {
-	// Read session data by sessionID,return error if the session do not exists
-	Read(ssid,key string) (interface{},error)
-	// Write data into session,this method will create a session if not exist
-	Write(ssid,key string,data interface{},expire int64) (error)
-	// Refresh the session expire time and return the sessionID if the session exists
+	// New make a new session,return an error if the sessionID exist 
+	New(ssid string,expire int64) (error)
+	// Read session data by sessionID,return an error if the session do not exists
+	Read(key string) (interface{},error)
+	// Write data into session,return an error if the session do not exists
+	Write(key string,data interface{}) (error)
+	// Unset specified key,return an error if the session do not exists
+	Unset(key string) (error)
+	// Refresh checks if the sessionID exists, it will refresh the expire time and return true while the sessionID exists
 	Refresh(ssid string,expire int64) (string,bool)
 }
 
 type Session struct {
 	ID string
 	Request *http.Request
-	Option SessionOption
+	Option *SessionOption
 	Model ISessionModel
 }
 
-func defaultOption() SessionOption {
-	option := SessionOption{
+func defaultOption() *SessionOption {
+	option := &SessionOption{
 		SessionName: "GOSESSID",
 		Path: "/",
 		Domain: "",
@@ -53,13 +57,13 @@ func createSessionID(r *http.Request) string {
 	h := md5.New()
 	s := fmt.Sprintf("%s_%d_%d",r.RemoteAddr,time.Now().UnixNano(),rand.Int63())
 	io.WriteString(h, s)
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return fmt.Sprintf("%x%d", h.Sum(nil),time.Now().Unix())
 }
 
 // Start session
-func Start(r *http.Request,w http.ResponseWriter,model ISessionModel,options ...SessionOption) *Session {
+func Start(r *http.Request,w http.ResponseWriter,model ISessionModel,options ...*SessionOption) (*Session,error) {
 	var s *Session
-	var option SessionOption
+	var option *SessionOption
 	if options != nil {
 		option = options[0]
 	} else {
@@ -71,9 +75,11 @@ func Start(r *http.Request,w http.ResponseWriter,model ISessionModel,options ...
 	}
 	if sessionID == "" {
 		sessionID = createSessionID(r)
-		model.Write(sessionID,"_sessid",sessionID,option.MaxAge)
+		if err := model.New(sessionID,option.MaxAge); err != nil {
+			return nil,err
+		}
 	}
-	s = &Session{
+	s = &Session {
 		ID: sessionID,
 		Option: option,
 		Model: model,
@@ -89,22 +95,27 @@ func Start(r *http.Request,w http.ResponseWriter,model ISessionModel,options ...
 		HttpOnly: s.Option.HttpOnly,
 		Expires: time.Now().Add(time.Duration(s.Option.MaxAge)*time.Second),
 	})
-	return s
+	return s,nil
 }
 
 // Set to session
 func (s *Session) Set(key string,value interface{}) (error) {
-	return s.Model.Write(s.ID,key,value,s.Option.MaxAge)
+	return s.Model.Write(key,value)
+}
+
+// Unset a specified key
+func (s *Session) Unset(key string) (error) {
+	return s.Model.Unset(key)
 }
 
 // Get a value from session
 func (s *Session) Get(key string) (interface{},error) {
-	return s.Model.Read(s.ID,key)
+	return s.Model.Read(key)
 }
 
 // Get a string value from session
 func (s *Session) GetString(key string) (string,error) {
-	if val,err := s.Model.Read(s.ID,key);err != nil {
+	if val,err := s.Model.Read(key);err != nil {
 		return "",err
 	} else {
 		if s,ok := val.(string);ok {
@@ -117,7 +128,7 @@ func (s *Session) GetString(key string) (string,error) {
 
 // Get an int value from session
 func (s *Session) GetInt(key string) (int,error) {
-	if val,err := s.Model.Read(s.ID,key);err != nil {
+	if val,err := s.Model.Read(key);err != nil {
 		return 0,err
 	} else {
 		if i,ok := val.(int);ok {
