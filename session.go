@@ -1,10 +1,10 @@
 package gosession
 
 import (
+	"reflect"
 	"io"
 	"fmt"
 	"time"
-	"errors"
 	"net/http"
 	"crypto/md5"
 	"math/rand"
@@ -113,6 +113,10 @@ func (s *Session) Get(key string) (interface{},error) {
 	return s.Model.Read(key)
 }
 
+func typeError(wanted string,actual interface{}) error {
+	return fmt.Errorf("type missmatch,wanted: %s ,actual: %s",wanted,reflect.TypeOf(actual).String())
+}
+
 // Get a string value from session
 func (s *Session) GetString(key string) (string,error) {
 	if val,err := s.Model.Read(key);err != nil {
@@ -121,7 +125,7 @@ func (s *Session) GetString(key string) (string,error) {
 		if s,ok := val.(string);ok {
 			return s,nil
 		} else {
-			return "",errors.New("type missmatch")
+			return "",typeError("string",val)
 		}
 	}
 }
@@ -134,7 +138,46 @@ func (s *Session) GetInt(key string) (int,error) {
 		if i,ok := val.(int);ok {
 			return i,nil
 		} else {
-			return 0,errors.New("type missmatch")
+			return 0,typeError("int",val)
+		}
+	}
+}
+
+// Get an uint value from session
+func (s *Session) GetUInt(key string) (uint,error) {
+	if val,err := s.Model.Read(key);err != nil {
+		return 0,err
+	} else {
+		if i,ok := val.(uint);ok {
+			return i,nil
+		} else {
+			return 0,typeError("uint",val)
+		}
+	}
+}
+
+// Get a float32 value from session
+func (s *Session) GetFloat32(key string) (float32,error) {
+	if val,err := s.Model.Read(key);err != nil {
+		return 0.0,err
+	} else {
+		if i,ok := val.(float32);ok {
+			return i,nil
+		} else {
+			return 0.0,typeError("float32",val)
+		}
+	}
+}
+
+// Get a float64 value from session
+func (s *Session) GetFloat64(key string) (float64,error) {
+	if val,err := s.Model.Read(key);err != nil {
+		return 0.0,err
+	} else {
+		if i,ok := val.(float64);ok {
+			return i,nil
+		} else {
+			return 0.0,typeError("float64",val)
 		}
 	}
 }
